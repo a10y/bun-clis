@@ -22,14 +22,28 @@ const JSON_SCHEMA = {
     findings: {
       type: "array",
       items: {
-        type: "string",
+        type: "object",
+        properties: {
+          line: {
+            type: "number",
+          },
+          text: {
+            type: "string",
+          },
+        },
       },
     },
     hasNoFindings: {
       type: "boolean",
     },
   },
-  required: ["documentId", "hasNoFindings", "findings"],
+  required: [
+    "organizationName",
+    "auditorName",
+    "documentId",
+    "hasNoFindings",
+    "findings",
+  ],
 };
 
 const EXTRACT_FUNC_NAME = "extract";
@@ -41,16 +55,27 @@ const TOOLS: Array<ChatCompletionTool> = [
       description:
         "Receives the parameters of the extraction and stores them in a database. " +
         "This includes the fields " +
-         "`organizationName`, which is the name of the organization/grantee being audited, "+ 
-         "`auditorName`, which is the name of the auditing agency or accounting firm, "+ 
-         "`findings`, a string[] of findings, " +
-         "`hasNoFindings`, which is true only if there are no findings",
+        "`organizationName`, which is the name of the organization/grantee being audited, " +
+        "`auditorName`, which is the name of the auditing agency or accounting firm, " +
+        "`findings`, a string[] of findings where each element is a `line` number for where the line is sourced, and `text` containing the *exact* word-for-word extracted finding text from the audit, " +
+        "`hasNoFindings`, which is true only if there are no findings",
       parameters: JSON_SCHEMA,
     },
   },
 ];
 
-const AUDIT_NO_FINDINGS = `
+function linify(text: string) {
+  const lines = [];
+  const splits = text.split(/\n+/);
+  for (let i = 0; i < splits.length; i++) {
+    lines.push({ line: i, text: splits[i] });
+  }
+  return lines;
+}
+
+const AUDIT_NO_FINDINGS = JSON.stringify(
+  linify(
+    `
 AUDIT FILING
 
 SAINT LOUIS CHILDRENS HOSPITAL
@@ -59,9 +84,13 @@ This is the comprehensive audit for Saint Louis Childrens Hospital, for grants t
 Year 2023. This audit is being performed by Halpern & Rose LLP.
 
 The audit surfaced no findings, their funds appear to be in order and compliance controls are properly in place.
-`.trim();
+`.trim()
+  )
+);
 
-const AUDIT_ONE_FINDING = `
+const AUDIT_ONE_FINDING = JSON.stringify(
+  linify(
+    `
 AUDIT FILING
 
 SAINT LOUIS CHILDRENS HOSPITAL
@@ -73,9 +102,12 @@ The audit surfaced a finding due to compliance control number 4993 in 2CFR subse
 to be delinquent in keeping receipts related to coffee machine refills.
 
 There were no other findings.
-`.trim();
+`.trim()
+  )
+);
 
 async function extractAuditFindings(auditText: string) {
+  console.log("using auditText", auditText);
   const functionCall = await openai.chat.completions.create({
     messages: [
       {
